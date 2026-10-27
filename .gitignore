@@ -1,0 +1,20 @@
+# Local credentials and generated firmware.
+**/secrets.yaml
+**/secrets.*.yaml
+!**/secrets.example.yaml
+**/.esphome/
+backups/
+*.bin
+*.uf2
+*.elf
+*.map
+*.log
+
+# Local environments and caches.
+.venv/
+.venv-firmware/
+.env
+.env.*
+__pycache__/
+*.py[cod]
+.pytest_cache/
