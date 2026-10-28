@@ -1,0 +1,7 @@
+platform: template
+name: ${entity_name}
+disabled_by_default: true
+entity_category: diagnostic
+lambda: |-
+  if (!id(ac_control).status_fresh() || id(ac_control).status_length() <= ${index}) return {};
+  return bool((id(ac_control).status()[${index}] >> ${bit}) & 1);

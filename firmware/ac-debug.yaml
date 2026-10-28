@@ -1,0 +1,51 @@
+# Original module on its migrated LibreTiny layout, not a stock-layout drop-in.
+# Remove the loopback jumper. Disconnect every USB/bench wire before AC installation.
+# Status queries only: no climate controls, factory commands, timers or OTA.
+packages:
+  bench: !include bench.yaml
+
+esphome:
+  platformio_options:
+    # Board exposes alternate UART0 pins but no defaults for ESPHome's selector.
+    build_flags:
+      - -DPIN_SERIAL0_RX=12
+      - -DPIN_SERIAL0_TX=11
+  on_boot:
+    priority: -100
+    then:
+      - logger.log:
+          level: WARN
+          format: "AC UART DEBUG: TX PA11 / RX PA12, 9600 8E1; status queries only."
+
+logger:
+  level: DEBUG
+
+uart:
+  id: ac_uart
+  tx_pin: PA11
+  rx_pin: PA12
+  baud_rate: 9600
+  data_bits: 8
+  parity: EVEN
+  stop_bits: 1
+  debug:
+    direction: BOTH
+    debug_prefix: "AC "
+    dummy_receiver: true
+    after:
+      bytes: 128
+      timeout: 50ms
+    sequence:
+      - lambda: UARTDebug::log_hex(direction, bytes, ' ', debug_prefix);
+
+interval:
+  - interval: 2s
+    startup_delay: 15s
+    then:
+      - uart.write:
+          id: ac_uart
+          # Exact 31-byte command-04 status query from the verified stock image.
+          data: [0xBB, 0x00, 0x01, 0x04, 0x19, 0x00, 0x00, 0x00,
+                 0x08, 0x0F, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00,
+                 0x00, 0x00, 0x00, 0x00, 0x1F, 0x1F, 0x1F, 0x1F,
+                 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0xA6]

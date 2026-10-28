@@ -1,0 +1,13 @@
+# Numeric stock enums stay numeric: their physical meanings are not all known.
+platform: template
+name: ${entity_name}
+disabled_by_default: true
+entity_category: config
+mode: box
+min_value: ${minimum}
+max_value: ${maximum}
+step: ${step}
+update_interval: 2s
+lambda: return id(ac_control).property_state("${property}");
+set_action:
+  - lambda: id(ac_control).request_property("${property}", x);

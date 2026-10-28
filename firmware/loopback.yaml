@@ -1,0 +1,25 @@
+# BENCH ONLY: never connect this transmitting pin-discovery build to the AC.
+# Uses real credentials from secrets.yaml; these remain private.
+packages:
+  bench: !include bench.yaml
+
+esphome:
+  includes:
+    - uart_loopback.h
+  on_boot:
+    priority: -100
+    then:
+      - logger.log:
+          level: WARN
+          format: "BENCH LOOPBACK TEST: AC must be disconnected. Testing PA11/12 and PA14/13."
+
+logger:
+  level: DEBUG
+
+interval:
+  - interval: 4s
+    startup_delay: 10s
+    then:
+      - lambda: wl6u_loopback::start();
+      - delay: 100ms
+      - lambda: wl6u_loopback::finish();

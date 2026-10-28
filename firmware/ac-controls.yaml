@@ -1,0 +1,333 @@
+# Experimental controls on the original RTL8720CF, migrated LibreTiny layout only.
+# Raw TX/RX + decoded RX logs + Wi-Fi OTA enabled so future updates do not require
+# removing the module from the AC. No factory/reset/provisioning actions exposed.
+packages:
+  bench: !include bench.yaml
+  extras: !include ac-extras.yaml
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+esphome:
+  includes:
+    - ac_codec.h
+    - ac_report.h
+    - ac_stream.h
+    - ac_timer_codec.h
+  platformio_options:
+    build_flags:
+      - -DPIN_SERIAL0_RX=12
+      - -DPIN_SERIAL0_TX=11
+  on_boot:
+    priority: -100
+    then:
+      - logger.log:
+          level: WARN
+          format: "EXPERIMENTAL AC CONTROLS: raw TX/RX; TX does not prove AC acceptance."
+
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [tcl_ac]
+
+logger:
+  level: DEBUG
+
+uart:
+  id: ac_uart
+  tx_pin: PA11
+  rx_pin: PA12
+  baud_rate: 9600
+  data_bits: 8
+  parity: EVEN
+  stop_bits: 1
+  debug:
+    direction: BOTH
+    debug_prefix: "AC "
+    dummy_receiver: false
+    after:
+      bytes: 128
+      timeout: 50ms
+    sequence:
+      - lambda: UARTDebug::log_hex(direction, bytes, ' ', debug_prefix);
+
+tcl_ac:
+  id: ac_control
+  uart_id: ac_uart
+
+api:
+  actions:
+    - action: ac_set
+      variables:
+        property: string
+        value: float
+      then:
+        - lambda: id(ac_control).set_property(property, value);
+    - action: ac_set_force
+      variables:
+        property: string
+        value: float
+      then:
+        - lambda: id(ac_control).set_property(property, value, true);
+    - action: ac_query
+      variables:
+        kind: string
+      then:
+        - lambda: id(ac_control).query(kind);
+    - action: ac_special_timer
+      variables:
+        "on": bool
+        display: int
+        enable: int
+        minutes: int
+      then:
+        - lambda: id(ac_control).special_timer(on, display, enable, minutes);
+    - action: ac_weekly_timer
+      variables:
+        bank: int
+        slot: int
+        display: int
+        enable: int
+        minutes: int
+        days: string
+        power_or_mode: int
+        fan: int
+        temperature: float
+        fahrenheit: int
+      then:
+        - lambda: |-
+            id(ac_control).weekly_timer(bank, slot, display, enable, minutes,
+                days, power_or_mode, fan, temperature, fahrenheit);
+    - action: ac_clear_timer_bank
+      variables:
+        bank: int
+        confirm: bool
+      then:
+        - lambda: id(ac_control).clear_timer_bank(bank, confirm);
+    - action: ac_clear_energy
+      variables:
+        confirm: bool
+      then:
+        - lambda: id(ac_control).clear_energy(confirm);
+    - action: ac_set_clock
+      variables:
+        year: int
+        month: int
+        day: int
+        hour: int
+        minute: int
+        second: int
+      then:
+        - lambda: id(ac_control).set_clock(year, month, day, hour, minute, second);
+
+# Home Assistant entities (ESPHome native API; no MQTT broker needed).
+# Confirmed working classic TAC-12CHSD controls, sensors, and Energy (kWh) are
+# enabled by default here.
+# ac-extras.yaml holds non-classic/raw working TAC-12CHSD entities (disabled by
+# default) and keeps unsupported features commented out for other TCL models.
+# None of these transmit on their own: requests are queued in tcl_ac and sent
+# after a fresh AC status. Switches use restore_mode DISABLED so nothing is
+# sent at boot.
+climate:
+  - platform: tcl_ac
+    tcl_ac_id: ac_control
+    name: "Air conditioner"
+
+select:
+  - platform: template
+    name: "Vertical louver"
+    icon: mdi:arrow-up-down
+    update_interval: 2s
+    options: ["Default", "Top", "Upper", "Middle", "Lower", "Bottom",
+              "Swing full", "Swing upper", "Swing lower"]
+    lambda: |-
+      const char *option = id(ac_control).vertical_louver();
+      if (option == nullptr) return {};
+      return std::string(option);
+    set_action:
+      - lambda: id(ac_control).set_vertical_louver(x);
+  - platform: template
+    name: "Horizontal louver"
+    icon: mdi:arrow-left-right
+    update_interval: 2s
+    options: ["Default", "Left", "Middle left", "Middle", "Middle right", "Right",
+              "Swing full", "Swing left", "Swing middle", "Swing right"]
+    lambda: |-
+      const char *option = id(ac_control).horizontal_louver();
+      if (option == nullptr) return {};
+      return std::string(option);
+    set_action:
+      - lambda: id(ac_control).set_horizontal_louver(x);
+
+switch:
+  - platform: template
+    name: "Display"
+    icon: mdi:monitor
+    entity_category: config
+    restore_mode: DISABLED
+    lambda: |-
+      if (!id(ac_control).has_status()) return {};
+      return bool((id(ac_control).status()[2] >> 5) & 1);
+    turn_on_action:
+      - lambda: id(ac_control).request_property("screen", 1);
+    turn_off_action:
+      - lambda: id(ac_control).request_property("screen", 0);
+  - platform: template
+    name: "Beep"
+    icon: mdi:volume-high
+    entity_category: config
+    restore_mode: DISABLED
+    lambda: return id(ac_control).beep();
+    turn_on_action:
+      - lambda: id(ac_control).request_property("beepSwitch", 1);
+    turn_off_action:
+      - lambda: id(ac_control).request_property("beepSwitch", 0);
+  - platform: template
+    name: "Health"
+    icon: mdi:air-filter
+    entity_category: config
+    restore_mode: DISABLED
+    lambda: |-
+      if (!id(ac_control).has_status()) return {};
+      return bool((id(ac_control).status()[4] >> 2) & 1);
+    turn_on_action:
+      - lambda: id(ac_control).request_property("healthy", 1);
+    turn_off_action:
+      - lambda: id(ac_control).request_property("healthy", 0);
+  - platform: template
+    name: "Anti-mould"
+    icon: mdi:water-off
+    entity_category: config
+    restore_mode: DISABLED
+    lambda: |-
+      if (!id(ac_control).has_status()) return {};
+      return bool((id(ac_control).status()[4] >> 3) & 1);
+    turn_on_action:
+      - lambda: id(ac_control).request_property("antiMoldew", 1);
+    turn_off_action:
+      - lambda: id(ac_control).request_property("antiMoldew", 0);
+  - platform: template
+    name: "3D airflow"
+    icon: mdi:fan-auto
+    entity_category: config
+    restore_mode: DISABLED
+    lambda: |-
+      const float value = id(ac_control).property_state("3DAirSurply");
+      if (std::isnan(value)) return {};
+      return value != 0;
+    turn_on_action:
+      - lambda: id(ac_control).request_property("3DAirSurply", 1);
+    turn_off_action:
+      - lambda: id(ac_control).request_property("3DAirSurply", 0);
+  - platform: template
+    name: "Light sense"
+    icon: mdi:brightness-auto
+    entity_category: config
+    restore_mode: DISABLED
+    lambda: |-
+      const float value = id(ac_control).property_state("lightSense");
+      if (std::isnan(value)) return {};
+      return value != 0;
+    turn_on_action:
+      - lambda: id(ac_control).request_property("lightSense", 1);
+    turn_off_action:
+      - lambda: id(ac_control).request_property("lightSense", 0);
+
+number:
+  - platform: template
+    name: "Sleep level"
+    icon: mdi:power-sleep
+    entity_category: config
+    mode: box
+    min_value: 0
+    max_value: 7
+    step: 1
+    update_interval: 2s
+    lambda: return id(ac_control).property_state("sleep");
+    set_action:
+      - lambda: id(ac_control).request_property("sleep", x);
+  - platform: template
+    name: "Generator mode"
+    icon: mdi:transmission-tower
+    entity_category: config
+    mode: box
+    min_value: 0
+    max_value: 3
+    step: 1
+    update_interval: 2s
+    lambda: return id(ac_control).property_state("generatorMode");
+    set_action:
+      - lambda: id(ac_control).request_property("generatorMode", x);
+
+sensor:
+  - platform: template
+    name: "Room temperature"
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 1
+    update_interval: 10s
+    lambda: |-
+      if (!id(ac_control).status_fresh()) return {};
+      return float(::tcl_ac::current_temperature_raw(id(ac_control).status()) - 200) * 0.1f;
+  - platform: template
+    name: "Power"
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+    update_interval: 5s
+    lambda: return id(ac_control).power_watts();
+  - platform: template
+    name: "Energy"
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 3
+    update_interval: 10s
+    lambda: return id(ac_control).energy_counter();
+  # Labels below are inferred from live telemetry, not from stock firmware.
+  - platform: template
+    name: "Supply voltage"
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    update_interval: 30s
+    lambda: |-
+      if (!id(ac_control).status_fresh() || id(ac_control).status_length() <= 40) return {};
+      return float(id(ac_control).status()[40]);
+  - platform: template
+    name: "Compressor frequency"
+    unit_of_measurement: "Hz"
+    device_class: frequency
+    state_class: measurement
+    accuracy_decimals: 0
+    update_interval: 10s
+    lambda: |-
+      if (!id(ac_control).status_fresh() || id(ac_control).status_length() <= 33) return {};
+      return float(id(ac_control).status()[33]);
+
+binary_sensor:
+  - platform: template
+    name: "AC link"
+    device_class: connectivity
+    entity_category: diagnostic
+    lambda: return id(ac_control).status_fresh();
+
+text_sensor:
+  - platform: template
+    name: "Error codes"
+    icon: mdi:alert-circle-outline
+    entity_category: diagnostic
+    update_interval: 10s
+    lambda: |-
+      if (!id(ac_control).status_fresh()) return {};
+      const auto errors = ::tcl_ac::error_codes(id(ac_control).status(), id(ac_control).status_length());
+      std::string out;
+      for (size_t i = 0; i < errors.count; ++i)
+        out += (i ? "," : "") + std::to_string(errors.code[i]);
+      return out.empty() ? std::string("none") : out;

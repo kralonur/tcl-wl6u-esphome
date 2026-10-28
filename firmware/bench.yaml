@@ -1,0 +1,28 @@
+# Minimal bench target for this module's migrated LibreTiny layout.
+# No AC UART or GPIO components; logger uses the separate LOG pads.
+# Not an application-only drop-in for stock TCL firmware. See README.md.
+esphome:
+  name: wl6u-bench
+  friendly_name: WL6U Bench
+  min_version: 2026.10.1
+
+rtl87xx:
+  board: generic-rtl8720cf-2mb-992k
+  framework:
+    version: 1.14.0
+    uart_port: 2
+    gpio_recover: false
+
+logger:
+  baud_rate: 115200
+  hardware_uart: UART2
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  reboot_timeout: 0s
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+  reboot_timeout: 0s

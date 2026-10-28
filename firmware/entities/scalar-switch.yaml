@@ -1,0 +1,14 @@
+# Reused by optional AC feature switches; local !include vars name the field.
+platform: template
+name: ${entity_name}
+disabled_by_default: true
+entity_category: config
+restore_mode: DISABLED
+lambda: |-
+  const float value = id(ac_control).property_state("${property}");
+  if (std::isnan(value)) return {};
+  return value != 0;
+turn_on_action:
+  - lambda: id(ac_control).request_property("${property}", 1);
+turn_off_action:
+  - lambda: id(ac_control).request_property("${property}", 0);
